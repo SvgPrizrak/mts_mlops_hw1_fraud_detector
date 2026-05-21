@@ -2,20 +2,25 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Создание директории для логов
+# Создаём директорию для логов
 RUN mkdir -p /app/logs && \
     touch /app/logs/service.log && \
-    chmod -R 777 /app/logs  # Права на запись для всех пользователей
+    chmod -R 777 /app/logs
 
-# Установка зависимостей
+# Копируем requirements и устанавливаем зависимости
 COPY requirements.txt .
+
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копирование исходного кода
+# Копируем весь проект внутрь контейнера
 COPY . .
 
-# Точки монтирования
+# Создаём input/output директории внутри контейнера
+RUN mkdir -p /app/input /app/output
+
+# Директории, которые будут монтироваться снаружи
 VOLUME /app/input
 VOLUME /app/output
 
+# Запуск сервиса
 CMD ["python", "./app/app.py"]

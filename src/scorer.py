@@ -1,29 +1,75 @@
-import pandas as pd
 import logging
+
+import numpy as np
+import pandas as pd
 from catboost import CatBoostClassifier
 
-# Настройка логгера
 logger = logging.getLogger(__name__)
 
-logger.info('Importing pretrained model...')
+MODEL_PATH = "./models/my_catboost.cbm"
+MODEL_THRESHOLD = 0.98
 
-# Import model
-model = CatBoostClassifier()
-model.load_model('./models/my_catboost.cbm')
 
-# Define optimal threshold
-model_th = 0.98
-logger.info('Pretrained model imported successfully...')
+def load_model() -> CatBoostClassifier:
+    """
+    Загружает обученную CatBoost-модель.
+    """
+    logger.info("Importing pretrained model...")
 
-# Make prediction
-def make_pred(dt, path_to_file):
+    model = CatBoostClassifier()
+    model.load_model(MODEL_PATH)
 
-    # Make submission dataframe
-    submission = pd.DataFrame({
-        'index':  pd.read_csv(path_to_file).index,
-        'prediction': (model.predict_proba(dt)[:, 1] > model_th) * 1
-    })
-    logger.info('Prediction complete for file: %s', path_to_file)
+    logger.info("Pretrained model imported successfully")
 
-    # Return proba for positive class
-    return submission
+    return model
+
+
+def make_predictions(
+    model: CatBoostClassifier,
+    processed_df: pd.DataFrame,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Делает inference.
+
+    Возвращает:
+    - scores: вероятности положительного класса;
+    - predictions: бинарные предсказания 0/1.
+    """
+    scores = model.predict_proba(processed_df)[:, 1]
+    predictions = (scores > MODEL_THRESHOLD).astype(int)
+
+    logger.info("Prediction complete")
+
+    return scores, predictions
+
+
+def get_feature_importances(
+    model: CatBoostClassifier,
+    feature_names: list[str],
+    top_n: int = 5,
+) -> dict[str, float]:
+    """
+    Возвращает top-N feature importances.
+    """
+    importances = model.get_feature_importance()
+
+    importance_df = pd.DataFrame(
+        {
+            "feature": feature_names,
+            "importance": importances,
+        }
+    )
+
+    importance_df = importance_df.sort_values(
+        by="importance",
+        ascending=False,
+    ).head(top_n)
+
+    result = {
+        row["feature"]: float(row["importance"])
+        for _, row in importance_df.iterrows()
+    }
+
+    logger.info("Feature importances calculated")
+
+    return result

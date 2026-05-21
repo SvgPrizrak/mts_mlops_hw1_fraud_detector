@@ -1,77 +1,210 @@
+import logging
 import os
 import sys
-import pandas as pd
 import time
-import logging
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-from datetime import datetime
+from pathlib import Path
 
-sys.path.append(os.path.abspath('./src'))
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
+
+sys.path.append(os.path.abspath("./src"))
+
+from loader import load_input_file
 from preprocessing import load_train_data, run_preproc
-from scorer import make_pred
+from scorer import load_model, make_predictions, get_feature_importances
+from exporter import (
+    ensure_output_dir,
+    save_feature_importances,
+    save_submission,
+)
+from reports import save_score_density_plot
+
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler('/app/logs/service.log'),
-        logging.StreamHandler()
-    ]
+        logging.FileHandler("/app/logs/service.log"),
+        logging.StreamHandler(),
+    ],
 )
+
 logger = logging.getLogger(__name__)
 
 
 class ProcessingService:
+    """
+    Основной сервис обработки файлов.
+    """
+
     def __init__(self):
-        logger.info('Initializing ProcessingService...')
-        self.input_dir = '/app/input'
-        self.output_dir = '/app/output'
+        logger.info("Initializing ProcessingService...")
+
+        self.input_dir = Path("/app/input")
+        self.output_dir = Path("/app/output")
+
+        ensure_output_dir(str(self.output_dir))
+
         self.train = load_train_data()
-        logger.info('Service initialized')
+        self.model = load_model()
 
-    def process_single_file(self, file_path):
+        logger.info("Service initialized")
+
+    def process_single_file(self, file_path: str) -> None:
+        """
+        Полный inference pipeline:
+        1. Загрузка входного файла
+        2. Препроцессинг
+        3. Скоринг
+        4. Сохранение sample_submission.csv
+        5. Сохранение feature_importances_top5.json
+        6. Сохранение prediction_score_density.png
+        """
         try:
-            logger.info('Processing file: %s', file_path)
-            input_df = pd.read_csv(file_path).drop(columns=['name_1', 'name_2', 'street', 'post_code'])
+            file_path = Path(file_path)
 
-            logger.info('Starting preprocessing')
-            processed_df = run_preproc(self.train, input_df)
-            
-            logger.info('Making prediction')
-            submission = make_pred(processed_df, file_path)
-            
-            logger.info('Prepraring submission file')
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_filename = f"predictions_{timestamp}_{os.path.basename(file_path)}"
-            submission.to_csv(os.path.join(self.output_dir, output_filename), index=False)
-            logger.info('Predictions saved to: %s', output_filename)
+            if file_path.name.startswith("."):
+                logger.info("Skipping hidden file: %s", file_path)
+                return
 
-        except Exception as e:
-            logger.error('Error processing file %s: %s', file_path, e, exc_info=True)
-            return
+            if file_path.suffix.lower() != ".csv":
+                logger.info("Skipping non-csv file: %s", file_path)
+                return
+
+            logger.info("Processing file: %s", file_path)
+
+            original_df = load_input_file(str(file_path))
+
+            input_df = original_df.drop(
+                columns=["name_1", "name_2", "street", "post_code"],
+                errors="ignore",
+            )
+
+            logger.info("Starting preprocessing")
+            processed_df = run_preproc(
+                train=self.train,
+                input_df=input_df,
+            )
+
+            logger.info("Making prediction")
+            scores, predictions = make_predictions(
+                model=self.model,
+                processed_df=processed_df,
+            )
+
+            submission_path = self.output_dir / "sample_submission.csv"
+            feature_importances_path = self.output_dir / "feature_importances_top5.json"
+            density_plot_path = self.output_dir / "prediction_score_density.png"
+
+            logger.info("Preparing submission file")
+            save_submission(
+                original_df=original_df,
+                predictions=predictions,
+                output_path=str(submission_path),
+            )
+
+            logger.info("Preparing feature importances file")
+            feature_importances = get_feature_importances(
+                model=self.model,
+                feature_names=list(processed_df.columns),
+                top_n=5,
+            )
+
+            save_feature_importances(
+                feature_importances=feature_importances,
+                output_path=str(feature_importances_path),
+            )
+
+            logger.info("Preparing score density plot")
+            save_score_density_plot(
+                scores=scores,
+                output_path=str(density_plot_path),
+            )
+
+            logger.info("Processing completed successfully")
+
+        except Exception as error:
+            logger.error(
+                "Error processing file %s: %s",
+                file_path,
+                error,
+                exc_info=True,
+            )
 
 
 class FileHandler(FileSystemEventHandler):
-    def __init__(self, service):
+    """
+    Обработчик событий в папке input.
+    """
+
+    def __init__(self, service: ProcessingService):
         self.service = service
 
     def on_created(self, event):
-        if not event.is_directory and event.src_path.endswith(".csv"):
-            logger.debug('New file detected: %s', event.src_path)
+        """
+        Срабатывает, когда в папке input появляется новый файл.
+        """
+        if event.is_directory:
+            return
+
+        if event.src_path.endswith(".csv"):
+            logger.info("New file detected: %s", event.src_path)
+
+            # Пауза нужна, чтобы файл успел полностью скопироваться.
+            time.sleep(1)
+
             self.service.process_single_file(event.src_path)
 
+    def on_moved(self, event):
+        """
+        Срабатывает, если файл был перемещён в папку input.
+        """
+        if event.is_directory:
+            return
+
+        if event.dest_path.endswith(".csv"):
+            logger.info("File moved to input directory: %s", event.dest_path)
+
+            # Пауза нужна, чтобы файл успел полностью переместиться.
+            time.sleep(1)
+
+            self.service.process_single_file(event.dest_path)
+
+
+def process_existing_files(service: ProcessingService) -> None:
+    """
+    Обрабатывает CSV-файлы, которые уже лежат в input до запуска контейнера.
+    """
+    logger.info("Checking existing files in input directory")
+
+    for file_path in service.input_dir.glob("*.csv"):
+        logger.info("Existing file found: %s", file_path)
+        service.process_single_file(str(file_path))
+
+
 if __name__ == "__main__":
-    logger.info('Starting ML scoring service...')
+    logger.info("Starting ML scoring service...")
+
     service = ProcessingService()
+
+    process_existing_files(service)
+
     observer = Observer()
-    observer.schedule(FileHandler(service), path=service.input_dir, recursive=False)
+    observer.schedule(
+        FileHandler(service),
+        path=str(service.input_dir),
+        recursive=False,
+    )
+
     observer.start()
-    logger.info('File observer started')
+
+    logger.info("File observer started")
+
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        logger.info('Service stopped by user')
+        logger.info("Service stopped by user")
         observer.stop()
+
     observer.join()
