@@ -9,16 +9,12 @@ from watchdog.observers import Observer
 
 sys.path.append(os.path.abspath("./src"))
 
+from exporter import (ensure_output_dir, save_feature_importances,
+                      save_submission)
 from loader import load_input_file
 from preprocessing import load_train_data, run_preproc
-from scorer import load_model, make_predictions, get_feature_importances
-from exporter import (
-    ensure_output_dir,
-    save_feature_importances,
-    save_submission,
-)
 from reports import save_score_density_plot
-
+from scorer import get_feature_importances, load_model, make_predictions
 
 logging.basicConfig(
     level=logging.INFO,

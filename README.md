@@ -2,7 +2,7 @@
 
 ## Описание проекта
 
-Сервис подготовлен в рамках домашнего задания по MLOps.
+Сервис подготовлен в рамках домашнего задания №1 по MLOps.
 
 Проект реализует batch inference service для ML-модели из соревнования блока ML 2025 года:
 
@@ -182,6 +182,14 @@ models/my_catboost.cbm
 docker --version
 ```
 
+Также можно проверить, что Docker daemon запущен:
+
+```bash
+docker ps
+```
+
+Если Docker не запущен, необходимо открыть Docker Desktop и дождаться запуска Docker Engine.
+
 ---
 
 ## Подготовка данных
@@ -216,6 +224,8 @@ input/test.csv
 │   └── test.csv
 ```
 
+Важно: CSV-файлы не хранятся в GitHub-репозитории. Они игнорируются через `.gitignore`.
+
 ---
 
 ## Сборка Docker image
@@ -225,6 +235,8 @@ input/test.csv
 ```bash
 docker build -t mts25-mlops-hw1 .
 ```
+
+Первичная сборка может занять несколько минут, так как Docker установит Python-зависимости из `requirements.txt`.
 
 ---
 
@@ -247,6 +259,8 @@ docker run --rm -it \
   -v "$(pwd)/output:/app/output" \
   mts25-mlops-hw1
 ```
+
+Флаг `--rm` означает, что контейнер будет автоматически удалён после остановки.
 
 ---
 
@@ -368,6 +382,13 @@ models/my_catboost.cbm
 -v "${PWD}/output:/app/output"
 ```
 
+Для macOS / Linux:
+
+```bash
+-v "$(pwd)/input:/app/input"
+-v "$(pwd)/output:/app/output"
+```
+
 ---
 
 ### В папке `output` ничего не появилось
@@ -396,6 +417,129 @@ src/exporter.py
 
 ---
 
+### Docker daemon не запущен
+
+Если появляется ошибка вида:
+
+```text
+failed to connect to the docker API
+```
+
+или:
+
+```text
+Cannot connect to the Docker daemon
+```
+
+проверьте, что Docker Desktop запущен.
+
+После запуска Docker Desktop проверьте:
+
+```bash
+docker ps
+```
+
+---
+
+## Очистка после тестирования
+
+Если контейнер запускался с флагом `--rm`, отдельное удаление контейнера не требуется: Docker удалит его автоматически после остановки.
+
+Остановить запущенный контейнер можно сочетанием клавиш:
+
+```text
+Ctrl + C
+```
+
+Если контейнер был запущен без `--rm`, посмотреть список контейнеров можно командой:
+
+```bash
+docker ps -a
+```
+
+Удалить контейнер:
+
+```bash
+docker rm <container_id_or_name>
+```
+
+Удалить Docker image проекта:
+
+```bash
+docker rmi mts25-mlops-hw1
+```
+
+Очистить входные и выходные директории:
+
+### Windows PowerShell
+
+```powershell
+Remove-Item .\input\* -Force
+Remove-Item .\output\* -Force
+```
+
+### macOS / Linux
+
+```bash
+rm -rf input/*
+rm -rf output/*
+```
+
+Если нужно удалить неиспользуемые Docker-объекты:
+
+```bash
+docker system prune
+```
+
+Если нужно полностью удалить неиспользуемые контейнеры, сети, образы и build cache:
+
+```bash
+docker system prune -a
+```
+
+Важно: команда `docker system prune -a` может удалить неиспользуемые образы других проектов.
+
+---
+
+## Проверка перед отправкой в GitHub
+
+Перед отправкой проекта проверьте статус Git:
+
+```bash
+git status
+```
+
+В репозиторий не должны попасть:
+
+```text
+train.csv
+test.csv
+*.csv
+```
+
+В репозиторий должны попасть:
+
+```text
+Dockerfile
+README.md
+requirements.txt
+app/
+src/
+models/my_catboost.cbm
+train_data/.gitkeep
+input/.gitkeep
+output/.gitkeep
+```
+
+Если CSV-файл случайно попал в индекс Git, удалите его из индекса:
+
+```bash
+git rm --cached train_data/train.csv
+git rm --cached input/test.csv
+```
+
+---
+
 ## Итоговый результат
 
 После успешного запуска сервис создаёт:
@@ -416,4 +560,4 @@ output/prediction_score_density.png
 - модель действительно применяется для подготовки результата;
 - дополнительно сохраняются top-5 feature importances и график распределения predicted scores.
 
-Внимание: сервис по умолчанию не хранит `sample_submission.csv` и файлы `feature_importances_top5.json` и `prediction_score_density.png` - данные файлы получаются только путем запуска сервиса, однако результаты я приложу в домашнюю работу личного кабинета МТС.
+Внимание: сервис по умолчанию не хранит `sample_submission.csv`, `feature_importances_top5.json` и `prediction_score_density.png` в GitHub. Эти файлы получаются только после запуска сервиса. При необходимости результаты можно приложить отдельно в домашнюю работу в личном кабинете МТС.

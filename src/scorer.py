@@ -66,8 +66,7 @@ def get_feature_importances(
     ).head(top_n)
 
     result = {
-        row["feature"]: float(row["importance"])
-        for _, row in importance_df.iterrows()
+        row["feature"]: float(row["importance"]) for _, row in importance_df.iterrows()
     }
 
     logger.info("Feature importances calculated")
